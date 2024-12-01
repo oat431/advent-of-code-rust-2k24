@@ -1,0 +1,3 @@
+example no text
+
+all the other examples will be ignore because they are not the same
