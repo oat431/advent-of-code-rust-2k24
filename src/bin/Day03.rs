@@ -17,18 +17,44 @@ fn main() -> Result<()> {
             line.push_str(&l);
         }
 
-        let regex = Regex::new(r"mul\(\d{1,3},\d{1,3}\)").unwrap();
+        let regex = Regex::new(r"mul\(\d{1,3},\d{1,3}\)")?;
         let mut sum: i64 = 0;
 
         for cap in regex.captures_iter(&line) {
             let mul = cap.get(0).unwrap().as_str();
-            sum += do_mul_instuction(mul);
+            sum += do_mul_instruction(mul);
         }
 
         Ok(sum)
     }
 
-    fn do_mul_instuction(mul: &str) -> i64 {
+    fn part2<R: BufRead>(reader: R) -> Result<i64> {
+        let input = reader.lines().flatten();
+        let mut line = String::new();
+        for l in input {
+            line.push_str(&l);
+        }
+
+        let regex = Regex::new(r"mul\(\d{1,3},\d{1,3}\)|do(n't)?\(\)")?;
+        let mut sum: i64 = 0;
+        let mut is_enabled = true;
+
+        for cap in regex.captures_iter(&line) {
+            let mul = cap.get(0).unwrap().as_str();
+            if mul == "don't()" {
+                is_enabled = false;
+            } else if mul == "do()" {
+                is_enabled = true;
+            }
+            if is_enabled {
+                sum += do_mul_instruction(mul);
+            }
+        }
+
+        Ok(sum)
+    }
+
+    fn do_mul_instruction(mul: &str) -> i64 {
         if mul == "do()" || mul == "don't()" {
             return 0;
         }
@@ -42,7 +68,11 @@ fn main() -> Result<()> {
     let input_file = BufReader::new(File::open(INPUT_FILE)?);
     let result_p1 = part1(input_file)?;
 
+    let input_file = BufReader::new(File::open(INPUT_FILE)?);
+    let result_p2 = part2(input_file)?;
+
     println!("Part 1: {}", result_p1);
+    println!("Part 2: {}", result_p2);
 
 
     Ok(())
