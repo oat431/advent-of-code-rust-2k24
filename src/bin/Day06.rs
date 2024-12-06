@@ -1,12 +1,12 @@
+use anyhow::*;
+use code_timing_macros::time_snippet;
+use const_format::concatcp;
+use adv_code_2024::start_day;
 use std::{
     collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
 };
-use anyhow::*;
-use const_format::concatcp;
-use adv_code_2024::start_day;
-
 const DAY: &str = "06";
 const INPUT_FILE: &str = concatcp!("input/day", DAY, ".txt");
 
@@ -34,15 +34,15 @@ impl Direction {
 
     const fn turn_right(self) -> Self {
         match self {
-            Self::Up => Self::Right,
-            Self::Right => Self::Down,
-            Self::Down => Self::Left,
-            Self::Left => Self::Up,
+            Self::Up => Self::Left,
+            Self::Right => Self::Up,
+            Self::Down => Self::Right,
+            Self::Left => Self::Down,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Position {
     x: i32,
     y: i32,
@@ -52,59 +52,134 @@ impl Position {
     const fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
+}
 
-    fn move_in_direction(&mut self, dir: Direction) {
-        match dir {
-            Direction::Up => self.y -= 1,
-            Direction::Right => self.x += 1,
-            Direction::Down => self.y += 1,
-            Direction::Left => self.x -= 1,
+struct Grid {
+    cells: Vec<Vec<char>>,
+}
+
+impl Grid {
+    fn from_reader<R: BufRead>(reader: R) -> Result<Self> {
+        let cells = reader
+            .lines()
+            .map(|l| l.map_err(Error::from))
+            .map(|line| line.map(|l| l.chars().collect()))
+            .collect::<Result<Vec<Vec<char>>>>()?;
+        Ok(Self { cells })
+    }
+
+    fn width(&self) -> usize {
+        self.cells.first().map(|row| row.len()).unwrap_or(0)
+    }
+
+    fn height(&self) -> usize {
+        self.cells.len()
+    }
+
+    fn get(&self, x: i32, y: i32) -> Option<char> {
+        if x < 0 || y < 0 || x as usize >= self.width() || y as usize >= self.height() {
+            None
+        } else {
+            Some(self.cells[y as usize][x as usize])
         }
     }
 
-    fn is_out_of_bounds(&self, x_len: usize, y_len: usize) -> bool {
-        self.x < 0 || self.y < 0 || self.x >= x_len as i32 || self.y >= y_len as i32
+    fn set(&mut self, x: i32, y: i32, c: char) {
+        if x >= 0 && y >= 0 && (x as usize) < self.width() && (y as usize) < self.height() {
+            self.cells[y as usize][x as usize] = c;
+        }
+    }
+
+    fn clone_grid(&self) -> Self {
+        Self {
+            cells: self.cells.clone(),
+        }
+    }
+
+    fn find_guard_start(&mut self) -> Option<Position> {
+        for y in 0..self.height() {
+            for x in 0..self.width() {
+                if self.cells[y][x] == '^' {
+                    self.cells[y][x] = 'X';
+                    return Some(Position::new(x as i32, y as i32));
+                }
+            }
+        }
+        None
     }
 }
 
-fn main() -> Result<()> {
-    start_day(DAY);
-
-    let result_p1 = execute_with_input(INPUT_FILE, part1)?;
-    println!("Part 1 Result = {result_p1}");
-
-    let result_p2 = execute_with_input(INPUT_FILE, part2)?;
-    println!("Part 2 Result = {result_p2}");
-
-    Ok(())
+fn move_guard(pos: &mut Position, dir: Direction) {
+    match dir {
+        Direction::Up => pos.y -= 1,
+        Direction::Right => pos.x += 1,
+        Direction::Down => pos.y += 1,
+        Direction::Left => pos.x -= 1,
+    };
 }
 
-fn execute_with_input<F>(file_path: &str, func: F) -> Result<usize>
-where
-    F: FnOnce(BufReader<File>) -> Result<usize>,
-{
-    let input_file = BufReader::new(File::open(file_path)?);
-    func(input_file)
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+fn color_path(mut grid: Grid) -> Option<usize> {
+    let mut count = 1;
+    let mut dir = Direction::new();
+    let mut visited = HashSet::new();
+
+    let start = grid.find_guard_start()?;
+    let (x_len, y_len) = (grid.width() as i32, grid.height() as i32);
+
+    let mut pos = start;
+
+    loop {
+        // stuck in the loop
+        if visited.contains(&(pos.x, pos.y, dir)) {
+            return None;
+        }
+        visited.insert((pos.x, pos.y, dir));
+
+        move_guard(&mut pos, dir);
+
+        // If guard leaves the area, we are done
+        if pos.x < 0 || pos.y < 0 || pos.x >= x_len || pos.y >= y_len {
+            break;
+        }
+
+        match grid.get(pos.x, pos.y) {
+            Some('#') => {
+                // Hit a wall: turn around and then turn right
+                dir = dir.invert();
+                move_guard(&mut pos, dir);
+                dir = dir.turn_right();
+            }
+            Some(c) if c != 'X' => {
+                // Mark visited cell
+                grid.set(pos.x, pos.y, 'X');
+                count += 1;
+            }
+            _ => {
+                // Already visited cell or something else: just continue
+            }
+        }
+    }
+
+    Some(count)
 }
 
 fn part1<R: BufRead>(reader: R) -> Result<usize> {
-    let input = parse_input(reader);
-    Ok(color_path(input).unwrap())
+    let grid = Grid::from_reader(reader)?;
+    Ok(color_path(grid).unwrap())
 }
 
 fn part2<R: BufRead>(reader: R) -> Result<usize> {
+    let original_grid = Grid::from_reader(reader)?;
+    let (x_len, y_len) = (original_grid.width(), original_grid.height());
+
     let mut answer = 0;
-
-    let input = parse_input(reader);
-    let x_len = input[0].len();
-    let y_len = input.len();
-
-    for x in 0..x_len {
-        for y in 0..y_len {
-            let mut test_input = input.clone();
-            if input[y][x] != '^' {
-                test_input[y][x] = '#';
-                if color_path(test_input).is_none() {
+    for y in 0..y_len {
+        for x in 0..x_len {
+            let mut grid = original_grid.clone_grid();
+            if grid.cells[y][x] != '^' {
+                grid.set(x as i32, y as i32, '#');
+                if color_path(grid).is_none() {
                     answer += 1;
                 }
             }
@@ -114,62 +189,20 @@ fn part2<R: BufRead>(reader: R) -> Result<usize> {
     Ok(answer)
 }
 
-fn parse_input<R: BufRead>(reader: R) -> Vec<Vec<char>> {
-    reader
-        .lines()
-        .filter_map(|l| l.ok())
-        .map(|line| line.chars().collect())
-        .collect()
-}
+fn main() -> Result<()> {
+    start_day(DAY);
 
-fn initialize_guard_position(input: &mut Vec<Vec<char>>, pos: &mut Position) {
-    for (y, row) in input.iter_mut().enumerate() {
-        for (x, cell) in row.iter_mut().enumerate() {
-            if *cell == '^' {
-                *cell = 'X';
-                *pos = Position::new(x as i32, y as i32);
-            }
-        }
-    }
-}
+    // Part 1
+    println!("=== Part 1 ===");
+    let input_file = BufReader::new(File::open(INPUT_FILE)?);
+    let result = part1(input_file)?;
+    println!("Result = {result}");
 
-fn color_path(mut input: Vec<Vec<char>>) -> Option<usize> {
-    let mut count = 1;
-    let x_len = input[0].len();
-    let y_len = input.len();
+    // Part 2
+    println!("=== Part 2 ===");
+    let input_file = BufReader::new(File::open(INPUT_FILE)?);
+    let result = part2(input_file)?;
+    println!("Result = {result}");
 
-    let mut pos = Position::new(0, 0);
-    let mut dir = Direction::new();
-    let mut visited = HashSet::new();
-
-    initialize_guard_position(&mut input, &mut pos);
-
-    loop {
-        // Stuck in a loop
-        if visited.contains(&(pos.x, pos.y, dir)) {
-            return None;
-        }
-
-        visited.insert((pos.x, pos.y, dir));
-        pos.move_in_direction(dir);
-
-        if pos.is_out_of_bounds(x_len, y_len) {
-            break;
-        }
-
-        match input[pos.y as usize][pos.x as usize] {
-            '#' => {
-                dir = dir.invert();
-                pos.move_in_direction(dir);
-                dir = dir.turn_right();
-            }
-            c if c != 'X' => {
-                input[pos.y as usize][pos.x as usize] = 'X';
-                count += 1;
-            }
-            _ => (),
-        }
-    }
-
-    Some(count)
+    Ok(())
 }
